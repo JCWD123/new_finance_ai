@@ -1,0 +1,64 @@
+
+# Standard Git Ignore Rules
+# Added by automated redirect script
+# IDE files
+.idea/
+.vscode/
+*.code-workspace
+# Python compiled files
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+# Log files
+logs/
+*.log
+# Environment variables
+.env
+.env.local
+.secret
+# OS generated files
+.DS_Store
+Thumbs.db
+# Coverage files
+.coverage
+htmlcov/
+
+# Project documentation files (not part of core codebase)
+*项目计划书*.md
+*预算分析报告*.md
+*智能体项目*.md
+抖音*.md
+小红书*.md
+优化版*.md
+
+# Temporary files
+commit_message.txt
+*.tmp
+*.temp
+
+# Build and distribution
+build/
+dist/
+*.egg-info/
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Vector storage (large files)
+vector_storage/*.bin
+vector_storage/*.index
+
+# Cache directories
+.cache/
+.pytest_cache/

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文章生成 - 金融资讯智能助手</title>
+    <!-- 引入共享样式文件 -->
+    <base href="/">
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="/static/shared.js"></script>
+</head>
+<body>
+<div class="article-result">
+    <div class="article-result-container">
+        <div class="article-sidebar">
+            <button class="back-btn" onclick="location.href='/'">
+                <svg style="width:20px;height:20px" viewBox="0 0 24 24">
+                    <path fill="currentColor"
+                          d="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z"/>
+                </svg>
+                返回
+            </button>
+            <div class="article-controls">
+                <h3>控制面板</h3>
+                <select id="articleType">
+                    <option value="ReadMorning">早间必读</option>
+                    <option value="LogicalReview">逻辑复盘</option>
+                </select>
+                <button onclick="startGenerate()" class="generate-btn" style="margin-top: 16px;">重新生成</button>
+            </div>
+            <div id="latestNews" class="latest-news">
+                <h3>最新资讯</h3>
+                <div id="sidebarNewsList"></div>
+            </div>
+        </div>
+        <div class="article-main">
+            <h3>生成文章</h3>
+            <div id="articleContent">
+            </div>
+            <!-- 添加进度条面板 -->
+            <div id="generateProgress" class="progress-container" style="display: none;">
+                <p class="progress-text">正在生成文章...</p>
+                <div class="progress-bar">
+                    <div class="progress"></div>
+                </div>
+                <div id="terminalOutput" class="terminal-output">
+                    <p class="info">系统就绪，等待生成...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 新闻详情弹窗 -->
+<div id="newsDetailModal" class="news-detail-modal">
+    <span class="close" onclick="closeNewsDetail()">&times;</span>
+    <div class="news-detail-header">
+        <h3>新闻详情</h3>
+        <div class="news-score">评分: 暂无</div>
+    </div>
+    <div class="news-detail-content">
+        <div class="news-content"></div>
+    </div>
+</div>
+
+<script>
+    // 页面加载完成后初始化
+    document.addEventListener('DOMContentLoaded', () => {
+        // 检查是否有存储的生成结果
+        const savedResult = sessionStorage.getItem('generatedArticle');
+        if (savedResult) {
+            const data = JSON.parse(savedResult);
+            displayGeneratedContent(data);
+            // 使用完后清除存储的数据
+            sessionStorage.removeItem('generatedArticle');
+            // 显示文章结果容器
+            document.querySelector('.article-result').classList.add('active');
+        }
+
+        // 设置文章类型
+        const urlParams = new URLSearchParams(window.location.search);
+        const type = urlParams.get('type');
+        if (type) {
+            const articleType = document.getElementById('articleType');
+            articleType.value = type;
+        }
+
+        // 如果没有生成结果且不是从生成页面跳转来的，加载最新资讯
+        if (!savedResult) {
+            loadLatestNews();
+        }
+    });
+
+    function displayGeneratedContent(data) {
+        // 更新生成内容
+        document.getElementById('articleContent').innerHTML = `
+            <div class="news-content">
+                ${data.generated_content}
+            </div>
+        `;
+
+        // 为文章内容中的事件引用添加点击事件
+        document.getElementById('articleContent').addEventListener('click', (e) => {
+            if (e.target.classList.contains('event-reference')) {
+                let newsId = e.target.getAttribute('onclick');
+                if (newsId) {
+                    newsId = newsId.match(/'([^']+)'/)[1];
+                    e.target.removeAttribute('onclick');
+                    e.target.setAttribute('data-news-id', newsId);
+                    fetchNewsDetail(newsId);
+                } else {
+                    newsId = e.target.getAttribute('data-news-id');
+                    if (newsId) {
+                        fetchNewsDetail(newsId);
+                    }
+                }
+            }
+        });
+
+        // 加载最新资讯
+        loadLatestNews();
+    }
+
+    async function loadLatestNews() {
+        try {
+            const response = await fetch('/api/dashboard');
+            const data = await response.json();
+            updateSidebarNews(data.points);
+        } catch (error) {
+            console.error('加载最新资讯失败:', error);
+        }
+    }
+
+    function updateSidebarNews(news) {
+        const sidebarNewsList = document.getElementById('sidebarNewsList');
+        sidebarNewsList.innerHTML = news.map(item => `
+            <div class="news-item-sidebar" data-news-id="${item.id}">
+                <h4>${item.event_summary}</h4>
+                <div class="news-date">${formatDate(item.date)}</div>
+            </div>
+        `).join('');
+
+        // 使用事件委托为侧边栏新闻绑定点击事件
+        sidebarNewsList.addEventListener('click', (e) => {
+            const newsItem = e.target.closest('.news-item-sidebar');
+            if (newsItem) {
+                const newsId = newsItem.dataset.newsId;
+                if (newsId) {
+                    fetchNewsDetail(newsId);
+                }
+            }
+        });
+    }
+
+    // 重新生成文章
+    async function startGenerate() {
+        const articleType = document.getElementById('articleType').value;
+        const articleContent = document.getElementById('articleContent');
+        const progressContainer = document.getElementById('generateProgress');
+        const progressBar = progressContainer.querySelector('.progress');
+        const generateBtn = document.querySelector('.generate-btn');
+        const terminal = document.getElementById('terminalOutput');
+
+        // 显示进度条面板，隐藏文章内容
+        articleContent.style.display = 'none';
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+        generateBtn.disabled = true;
+
+        // 清空并重置终端输出
+        terminal.innerHTML = '<p class="info">系统就绪，等待生成...</p>';
+
+        // 开始进度条动画
+        let progress = 0;
+        const progressInterval = setInterval(() => {
+            progress += 0.3;
+            if (progress <= 90) {
+                progressBar.style.width = `${progress}%`;
+            }
+        }, 300);
+
+        // 更新终端输出的辅助函数
+        function appendToTerminal(message, type = 'info') {
+            const p = document.createElement('p');
+            p.className = type;
+            p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            terminal.appendChild(p);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        try {
+            appendToTerminal('开始生成文章...', 'info');
+            appendToTerminal(`选择的文章类型: ${articleType}`, 'info');
+            appendToTerminal('正在发送生成请求...', 'info');
+
+            const response = await fetch('/api/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ article_type: articleType }),
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                appendToTerminal('文章生成完成！', 'info');
+
+                // 短暂延迟后显示生成结果
+                setTimeout(() => {
+                    // 隐藏进度条面板，显示文章内容
+                    progressContainer.style.display = 'none';
+                    articleContent.style.display = 'block';
+                    displayGeneratedContent(data);
+                    generateBtn.disabled = false;
+                }, 1000);
+            } else {
+                throw new Error('生成失败');
+            }
+        } catch (error) {
+            clearInterval(progressInterval);
+            appendToTerminal(`生成失败: ${error.message}`, 'error');
+            progressBar.style.width = '0%';
+            generateBtn.disabled = false;
+            
+            // 短暂延迟后恢复原始界面
+            setTimeout(() => {
+                progressContainer.style.display = 'none';
+                articleContent.style.display = 'block';
+            }, 3000);
+        }
+    }
+</script>
+</body>
+</html>

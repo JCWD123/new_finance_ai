@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>金融资讯智能助手</title>
+  <!-- 引入共享样式文件 -->
+  <link rel="stylesheet" href="/static/styles.css">
+  <!-- 添加 ECharts -->
+  <script src="/static/echarts.min.js"></script>
+  <script src="/static/shared.js"></script>
+</head>
+
+<body>
+  <div class="container">
+    <div class="dashboard">
+      <!-- 指数数据卡片 -->
+      <div class="card" id="marketIndex">
+        <h2>市场指数数据</h2>
+        <div class="index-data"></div>
+      </div>
+
+      <!-- K线图卡片 -->
+      <div class="card" id="kLineChart">
+        <h2>行情K线图</h2>
+        <div class="kline-chart"></div>
+      </div>
+
+      <!-- 资讯列表卡片 -->
+      <div class="card news-list">
+        <h2>最新资讯
+          <button class="generate-btn" onclick="showGenerateModal()">生成文章</button>
+        </h2>
+        <div id="newsList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 资讯详情弹窗 -->
+  <div id="newsDetailModal" class="news-detail-modal">
+    <span class="close" onclick="closeNewsDetail()">&times;</span>
+    <div class="news-detail-header">
+      <h3>新闻详情</h3>
+      <div class="news-score">评分: 暂无</div>
+    </div>
+    <div class="news-detail-content">
+      <div class="news-content">
+        <p>点击左侧新闻查看详情</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 生成文章弹窗 -->
+  <div id="generateModal" class="generate-modal">
+    <span class="close" onclick="closeGenerateModal()">&times;</span>
+    <div class="generate-header">
+      <h3>生成文章</h3>
+    </div>
+    <div class="news-detail-content">
+      <div class="control-panel">
+        <select id="articleType">
+          <option value="ReadMorning">早间必读</option>
+          <option value="LogicalReview">逻辑复盘</option>
+        </select>
+        <button onclick="startGenerateInModal()" class="generate-btn">开始生成</button>
+      </div>
+      <div id="generateProgress" class="progress-container" style="display: none;">
+        <p class="progress-text">正在生成文章...</p>
+        <div class="progress-bar">
+          <div class="progress"></div>
+        </div>
+      </div>
+      <div id="terminalOutput" class="terminal-output">
+        <p class="info">系统就绪，等待生成指令...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 全局图表变量
+    let kLineChart, indexDataChart;
+
+    // 初始化图表
+    function initCharts() {
+      kLineChart = echarts.init(document.querySelector('.kline-chart'));
+      indexDataChart = echarts.init(document.querySelector('.index-data'));
+
+      window.addEventListener('resize', function () {
+        kLineChart.resize();
+        indexDataChart.resize();
+      });
+    }
+
+    // 展示指数数据
+    function displayIndexData(exponentData) {
+      const dataList = [];
+      const colors = {
+        '000001.SH': '#c23531', // 上证指数 - 红色
+        'N225.GI': '#2f4554',   // 日经指数 - 蓝色
+        'IXIC.GI': '#61a0a8'    // 纳斯达克指数 - 绿色
+      };
+      
+      const names = {
+        '000001.SH': '上证指数',
+        'N225.GI': '日经指数',
+        'IXIC.GI': '纳斯达克指数'
+      };
+      
+      for (const [key, value] of Object.entries(exponentData)) {
+        dataList.push({
+          name: names[key],
+          value: value.changeRatio,
+          itemStyle: {
+            color: value.changeRatio >= 0 ? '#c23531' : '#61a0a8'
+          }
+        });
+      }
+      
+      const option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'shadow'
+          },
+          formatter: function(params) {
+            const data = params[0];
+            const key = Object.keys(names).find(k => names[k] === data.name);
+            const info = exponentData[key];
+            return `${data.name}<br/>
+                    开盘: ${info.open}<br/>
+                    收盘: ${info.close}<br/>
+                    涨跌幅: ${info.changeRatio}%`;
+          }
+        },
+        grid: {
+          left: '3%',
+          right: '4%',
+          bottom: '3%',
+          containLabel: true
+        },
+        xAxis: {
+          type: 'category',
+          data: Object.values(names)
+        },
+        yAxis: {
+          type: 'value',
+          axisLabel: {
+            formatter: '{value}%'
+          }
+        },
+        series: [
+          {
+            type: 'bar',
+            data: dataList,
+            label: {
+              show: true,
+              position: 'top',
+              formatter: '{c}%'
+            }
+          }
+        ]
+      };
+      
+      indexDataChart.setOption(option);
+    }
+
+    // 展示K线图
+    function displayKLineChart(kLineData) {
+      // 处理K线数据 - kLineData是对象而非数组
+      const data = [];
+      const dates = [];
+      
+      // 遍历对象键并转换为K线数据格式
+      let prevPrice = null;
+      for (const [dateTime, itemData] of Object.entries(kLineData)) {
+        // 实时价格
+        const price = itemData.open;
+        // 记录实时价格和时间
+        data.push([
+          dateTime,   // 时间
+          price      // 实时价格
+        ]);
+        
+        dates.push(dateTime);
+      }
+      
+      const option = {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: {
+            type: 'cross'
+          },
+          formatter: function (params) {
+            const data = params[0].data;
+            const dateTime = data[0];
+            const price = data[1];
+            const itemData = kLineData[dateTime];
+            return `时间: ${dateTime}<br/>
+                    价格: ${price.toFixed(2)}<br/>
+                    涨跌幅: ${itemData.changeRatio}%<br/>
+                    成交额: ${(itemData.amount / 100000000).toFixed(2)}亿`;
+          }
+        },
+        grid: {
+          left: '10%',
+          right: '10%'
+        },
+        xAxis: {
+          type: 'category',
+          data: dates,
+          scale: true
+        },
+        yAxis: {
+          scale: true,
+          splitArea: {
+            show: true
+          }
+        },
+        dataZoom: [
+          {
+            type: 'inside',
+            start: 70,
+            end: 100
+          },
+          {
+            show: true,
+            type: 'slider',
+            bottom: 10,
+            start: 70,
+            end: 100
+          }
+        ],
+        series: [
+          {
+            name: '上证指数',
+            type: 'line',
+            data: data,
+            itemStyle: {
+              color: '#c23531'
+            },
+            lineStyle: {
+              width: 1
+            }
+          }
+        ]
+      };
+      
+      kLineChart.setOption(option);
+    }
+
+    // 展示新闻列表
+    function displayNewsList(news) {
+      const container = document.getElementById('newsList');
+      container.innerHTML = news.map(item => `
+        <div class="news-item" onclick="fetchNewsDetail('${item.id}')">
+          <div class="news-summary">${item.event_summary}</div>
+          <div class="news-meta">
+            <span class="news-date">${formatDate(item.date)}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function formatDate(dateStr) {
+      const date = new Date(dateStr);
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    // 页面加载完成后初始化
+    document.addEventListener('DOMContentLoaded', () => {
+      initCharts();
+      loadDashboard();
+    });
+
+    // 加载仪表盘数据
+    async function loadDashboard() {
+      try {
+        const response = await fetch('/api/dashboard');
+        const data = await response.json();
+        window.dashboardData = data; // 保存数据供后续使用
+
+        displayNewsList(data.points);
+        
+        // 获取市场数据
+        const marketResponse = await fetch('/api/exponentialFolding');
+        const marketData = await marketResponse.json();
+        
+        if (marketData.exponent) {
+          displayIndexData(marketData.exponent);
+        }
+        
+        if (marketData.kLineData) {
+          displayKLineChart(marketData.kLineData);
+        }
+      } catch (error) {
+        console.error('加载仪表盘数据失败:', error);
+      }
+    }
+
+    // 显示生成文章弹窗
+    function showGenerateModal() {
+      const modal = document.getElementById('generateModal');
+      const terminal = document.getElementById('terminalOutput');
+      modal.classList.add('active');
+      
+      // 重置状态
+      document.getElementById('generateProgress').style.display = 'none';
+      document.querySelector('.progress').style.width = '0%';
+      document.querySelector('#generateModal .generate-btn').disabled = false;
+      
+      // 清空并重置终端输出
+      terminal.innerHTML = '<p class="info">系统就绪，等待生成指令...</p>';
+    }
+
+    // 关闭生成文章弹窗
+    function closeGenerateModal() {
+      document.getElementById('generateModal').classList.remove('active');
+    }
+
+    // 在startGenerateInModal函数之前添加这个辅助函数
+    function appendToTerminal(message, type = 'info') {
+      const terminal = document.getElementById('terminalOutput');
+      const p = document.createElement('p');
+      p.className = type;
+      p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      terminal.appendChild(p);
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    // 在弹窗中开始生成
+    async function startGenerateInModal() {
+        const progressBar = document.querySelector('.progress');
+        const generateBtn = document.querySelector('#generateModal .generate-btn');
+        const terminal = document.getElementById('terminalOutput');
+        const articleType = document.getElementById('articleType').value;
+
+        // 显示进度条并禁用按钮
+        document.getElementById('generateProgress').style.display = 'block';
+        progressBar.style.width = '0%';
+        generateBtn.disabled = true;
+
+        // 开始进度条动画
+        let progress = 0;
+        const progressInterval = setInterval(() => {
+            progress += 0.3; // 更缓慢的进度增长
+            if (progress <= 90) {
+                progressBar.style.width = `${progress}%`;
+            }
+        }, 300);
+
+        // 立即发送生成请求
+        try {
+            appendToTerminal('开始生成文章...', 'info');
+            appendToTerminal(`选择的文章类型: ${articleType}`, 'info');
+            appendToTerminal('正在发送生成请求...', 'info');
+            appendToTerminal('正在生成文章...', 'info');
+            
+            const response = await fetch('/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ article_type: articleType }),
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                appendToTerminal('文章生成完成！', 'info');
+                sessionStorage.setItem('generatedArticle', JSON.stringify(result));
+                
+                appendToTerminal('即将跳转到生成结果页面...', 'info');
+                setTimeout(() => {
+                    window.location.href = `/generate?type=${articleType}&from=generate`;
+                }, 1000);
+            } else {
+                throw new Error('生成失败');
+            }
+        } catch (error) {
+            clearInterval(progressInterval);
+            appendToTerminal(`生成失败: ${error.message}`, 'error');
+            progressBar.style.width = '0%';
+            generateBtn.disabled = false;
+        }
+    }
+    
+    // 获取并显示新闻详情
+    async function fetchNewsDetail(newsId) {
+      try {
+        const response = await fetch(`/api/news/${newsId}`);
+        const data = await response.json();
+        
+        // 更新弹窗内容
+        document.querySelector('.news-detail-header h3').textContent = data.title || '新闻详情';
+        document.querySelector('.news-score').textContent = `评分: ${data.score || '暂无'}`;
+        
+        // 格式化内容
+        let contentHtml = `<p>${data.content.replace(/\n/g, '</p><p>')}</p>`;
+        
+        // 添加链接
+        if (data.links && (data.links.internal.length > 0 || data.links.abroad.length > 0)) {
+          contentHtml += '<div class="news-links">';
+          
+          if (data.links.internal.length > 0) {
+            contentHtml += '<h4>国内相关链接</h4><ul>';
+            data.links.internal.forEach(link => {
+              contentHtml += `<li><a href="${link}" target="_blank">${link}</a></li>`;
+            });
+            contentHtml += '</ul>';
+          }
+          
+          if (data.links.abroad.length > 0) {
+            contentHtml += '<h4>国外相关链接</h4><ul>';
+            data.links.abroad.forEach(link => {
+              contentHtml += `<li><a href="${link}" target="_blank">${link}</a></li>`;
+            });
+            contentHtml += '</ul>';
+          }
+          
+          contentHtml += '</div>';
+        }
+        
+        document.querySelector('.news-content').innerHTML = contentHtml;
+        
+        // 显示弹窗
+        document.getElementById('newsDetailModal').classList.add('active');
+      } catch (error) {
+        console.error('获取新闻详情失败:', error);
+      }
+    }
+
+    // 关闭新闻详情弹窗
+    function closeNewsDetail() {
+      document.getElementById('newsDetailModal').classList.remove('active');
+    }
+  </script>
+</body>
+
+</html>
